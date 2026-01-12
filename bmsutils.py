@@ -350,7 +350,7 @@ class BeatorajaConfig:
 # ----------------------------------
 # Folder operations
 # ----------------------------------
-def db_add_root_folder(folder: str, cursor: sqlite3.Cursor):
+def db_add_root_folder(folder: BmsPath, cursor: sqlite3.Cursor):
     """Create entry for root folder in Beatoraja database if it does not exist."""
     folder = check_bms_path(folder)
     cursor.execute("SELECT * FROM folder WHERE path = ?", [folder])
@@ -531,7 +531,7 @@ def db_move_folder(
     return dest_is_root_folder
 
 
-def db_delete_folder(src: str, cursor: sqlite3.Cursor, crc_calc: BmsCrc32Calculator):
+def db_delete_folder(src: BmsPath, cursor: sqlite3.Cursor, crc_calc: BmsCrc32Calculator):
     """
     Modify the Beatoraja songdata.db database to delete the bms folder and bms songs at {src}.
      - Recursively deletes child folder entries
@@ -550,7 +550,7 @@ def db_delete_folder(src: str, cursor: sqlite3.Cursor, crc_calc: BmsCrc32Calcula
     cursor.execute("DELETE FROM song WHERE folder = ?", [src_crc])
 
 
-def db_delete_folder_faster(src: str, cursor: sqlite3.Cursor, crc_calc: BmsCrc32Calculator):
+def db_delete_folder_faster(src: BmsPath, cursor: sqlite3.Cursor, crc_calc: BmsCrc32Calculator):
     """
     Modify the Beatoraja songdata.db database to delete the bms folder and bms songs at {src}.
     """
@@ -569,7 +569,7 @@ def db_delete_folder_faster(src: str, cursor: sqlite3.Cursor, crc_calc: BmsCrc32
 
 
 def add_root_folder(
-    folder: str,
+    folder: BmsPath,
     cursor: sqlite3.Cursor,
     crc_calc: BmsCrc32Calculator,
     config: BeatorajaConfig | None,
@@ -591,8 +591,8 @@ def add_root_folder(
 
 
 def move_folder(
-    src: str,
-    dest: str,
+    src: BmsPath,
+    dest: BmsPath,
     cursor: sqlite3.Cursor,
     crc_calc: BmsCrc32Calculator,
     config: BeatorajaConfig | None,
@@ -628,7 +628,7 @@ def _default_send_to_trash(path: Path):
 
 
 def delete_folder(
-    src: str,
+    src: BmsPath,
     cursor: sqlite3.Cursor,
     crc_calc: BmsCrc32Calculator,
     config: BeatorajaConfig,
