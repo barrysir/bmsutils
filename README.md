@@ -97,6 +97,7 @@ else:
 ```
 
 * todo: mention difference between `db_delete_folder` and `db_delete_folder_faster`
+* todo: explain `dest_is_root_folder` argument of `move_folder`
 
 
 ## Testing

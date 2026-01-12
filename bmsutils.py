@@ -471,14 +471,19 @@ def db_move_folder(
     dest_crc = bms_path_crc32(dest, crc_calc)
 
     # Create parent folder entries
-    if make_dest_a_root:
-        dest_parent_crc = ROOT_FOLDER_CRC
-        dest_is_root_folder = True
-    else:
-        try:
-            dest_parent_crc = find_and_create_parents(dest)
-            dest_is_root_folder = False
-        except LastDirectoryError:
+    # If dest is below a root folder, then dest has to be a non-root because
+    # you can't have a root folder under a root folder
+    # Therefore, if dest is below a root folder, set it as a non-root
+    # regardless of whether dest was set as a root or not
+    # Otherwise, set dest as a root folder if the flag is set, otherwise throw an error
+    try:
+        dest_parent_crc = find_and_create_parents(dest)
+        dest_is_root_folder = False
+    except LastDirectoryError:
+        if make_dest_a_root:
+            dest_parent_crc = ROOT_FOLDER_CRC
+            dest_is_root_folder = True
+        else:
             raise LastDirectoryError(
                 "No root folder exists above dest. "
                 "If you intend to place a root folder at dest, use the `make_dest_a_root` flag."
