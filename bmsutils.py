@@ -46,6 +46,11 @@ def _relative_at(rel_or_abs: Path, root: Path):
 # ----------------------------------
 # BMS utility functions
 # ----------------------------------
+
+# see DOCUMENTATION.md
+BMS_EXTENSIONS = {".bms", ".bme", ".bml", ".pms", ".bmson"}
+
+
 class LastDirectoryError(Exception):
     """Thrown by BmsFolder when it tries to get the parent of a path that doesn't have a parent"""
 
@@ -60,6 +65,16 @@ def is_root_folder(src: BmsPath, cursor: sqlite3.Cursor):
         raise ValueError(f"Path {src!r} not found in database")
     parent_crc = record[0]
     return parent_crc == ROOT_FOLDER_CRC
+
+
+def list_bms_files(folder: Path):
+    """Return iterator over all bms files in a folder"""
+    for file in folder.iterdir():
+        if not file.is_file():
+            continue
+
+        if file.suffix.lower() in BMS_EXTENSIONS:
+            yield file
 
 
 # ----------------------------------
