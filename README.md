@@ -2,7 +2,7 @@
 
 Helper functions for operating on a Beatoraja database: calculating hashes, moving song folders, merging duplicate folders, etc.
 
-I made these for myself so they're not thoroughly tested. Please check they execute properly. (Worst case you'll need to regenerate your entire bms database.) You can use this as a library or as a reference for your own implementation. 
+I made these for myself so they're not thoroughly tested. Please check they execute properly. (Worst case you'll need to regenerate your entire bms database.)
 
 I've written the functions to support both Windows and Linux style paths but I don't have a Linux beatoraja setup to test so it might not work on Linux anyways. (It also most likely won't work cross platform due to how path implementation changes with OS in Python. Don't process a Linux beatoraja on a Windows machine.)
 
