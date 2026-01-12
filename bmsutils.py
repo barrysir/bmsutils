@@ -190,6 +190,7 @@ class BmsCrc32Calculator:
 # BmsPath and helper functions
 # ----------------------------------
 BmsPath = NewType("BmsPath", str)
+BmsFile = NewType("BmsFile", str)
 
 
 def is_absolute(path: BmsPath):
@@ -252,6 +253,23 @@ def bms_path_dirname(path: BmsPath):
 
 def bms_path_basename(path: BmsPath):
     return os.path.basename(path[:-1])
+
+
+def bms_path_join(path: BmsPath, filename: str) -> BmsFile:
+    return BmsFile(path + filename)
+
+
+def bms_file_parent(filepath: BmsFile) -> BmsPath:
+    if len(filepath) == 0 or filepath[-1] in "/\\":
+        raise ValueError(f"argument {filepath} is not a valid filepath")
+
+    i = 2
+    for i in range(2, len(filepath)):
+        c = filepath[-i]
+        if c in "/\\":
+            break
+
+    return BmsPath(filepath[: -i + 1])
 
 
 def bms_path_graft(path: BmsPath, src: BmsPath, dst: BmsPath) -> BmsPath:
