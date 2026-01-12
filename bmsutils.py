@@ -362,12 +362,14 @@ def db_move_folder(
     dest: BmsPath,
     cursor: sqlite3.Cursor,
     crc_calc: BmsCrc32Calculator,
+    make_dest_a_root: bool,
 ):
     """
-    Modify the Beatoraja songdata.db database to move the bms folder and bms songs at `src` to `dest`.
-     - Checks if `dest` is underneath a root directory
-       - If it is, creates any missing parent folder entries for `dest`, between `dest` and its root folder
-       - If not, then makes `dest` a new root directory
+    Modify the Beatoraja songdata.db database to move the folder at `src` to `dest`.
+     - Checks if `dest` is underneath an existing directory
+       - If it is, creates the folder structure from the directory down to `dest`
+       - If not, then throws an error
+       - If the `make_dest_a_root` flag is on, then sets `dest` to be a root directory.
      - Rewrites the folder entry for `src` to refer to `dest`
      - Modifies child folder entries to point to `dest`
      - Modifies child song entries to point to `dest`
@@ -448,12 +450,18 @@ def db_move_folder(
     dest_crc = bms_path_crc32(dest, crc_calc)
 
     # Create parent folder entries
-    try:
-        dest_parent_crc = find_and_create_parents(dest)
-        dest_is_root_folder = False
-    except LastDirectoryError:
+    if make_dest_a_root:
         dest_parent_crc = ROOT_FOLDER_CRC
         dest_is_root_folder = True
+    else:
+        try:
+            dest_parent_crc = find_and_create_parents(dest)
+            dest_is_root_folder = False
+        except LastDirectoryError:
+            raise LastDirectoryError(
+                "No root folder exists above dest. "
+                "If you intend to place a root folder at dest, use the `make_dest_a_root` flag."
+            )
 
     # Update the current folder entry to point to parent
     cursor.execute(
@@ -478,7 +486,7 @@ def db_move_folder(
     for (path,) in cursor.fetchall():
         sub_src = path
         sub_dest = bms_path_graft(sub_src, src, dest)
-        db_move_folder(sub_src, sub_dest, cursor, crc_calc)
+        db_move_folder(sub_src, sub_dest, cursor, crc_calc, make_dest_a_root=False)
 
     # Update the songs pointing to this folder
     cursor.execute("SELECT path FROM song WHERE folder = ?", [src_crc])
@@ -549,6 +557,7 @@ def move_folder(
     cursor: sqlite3.Cursor,
     crc_calc: BmsCrc32Calculator,
     config: BeatorajaConfig | None,
+    make_dest_a_root: bool,
 ):
     src = check_bms_path(src)
     dest = check_bms_path(dest)
@@ -560,7 +569,9 @@ def move_folder(
     assert not dest_abs.exists()
 
     # move folder in the database
-    dest_is_root_folder = db_move_folder(src, dest, cursor, crc_calc)
+    dest_is_root_folder = db_move_folder(
+        src, dest, cursor, crc_calc, make_dest_a_root=make_dest_a_root
+    )
 
     # move folder on disk
     dest_abs.parent.mkdir(parents=True, exist_ok=True)
