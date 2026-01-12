@@ -309,6 +309,60 @@ def check_bms_path(path: str) -> BmsPath:
 
 
 # ----------------------------------
+# Find duplicates
+# ----------------------------------
+def find_duplicate_hashes(cursor: sqlite3.Cursor) -> dict[str, list[tuple]]:
+    query = """SELECT * FROM song INNER JOIN (SELECT md5 FROM song WHERE md5 != '' GROUP BY md5 HAVING COUNT(*) > 1) dt ON dt.md5 = song.md5 ORDER BY md5"""
+    dupes = defaultdict(list)
+    for row in cursor.execute(query).fetchall():
+        dupes[row[0]].append(row)
+    return dupes
+
+
+def find_bms_duplicate(bms_path: Path, cursor: sqlite3.Cursor):
+    with open(bms_path, "rb") as fp:
+        md5 = bms_hash_md5(fp)
+    cursor.execute("SELECT path,folder FROM song WHERE md5 = ?", [md5])
+    return cursor.fetchall()
+
+
+def find_folder_duplicates(song_path: Path, cursor: sqlite3.Cursor, crc_calc: BmsCrc32Calculator):
+    """Detect all duplicates of {song_path} in the database"""
+
+    folders = defaultdict(list)
+
+    bms_hashes = []
+    for bms_file in song_path.iterdir():
+        if not bms_file.is_file():
+            continue
+
+        if bms_file.suffix not in BMS_EXTENSIONS:
+            continue
+
+        bms_hashes.append(bms_hash_sha256(bms_file))
+
+    query_params = ", ".join("?" for _ in bms_hashes)
+    for (path,) in cursor.execute(
+        f"SELECT path FROM song WHERE sha256 IN ({query_params})", bms_hashes
+    ).fetchall():
+        folder = bms_file_parent(path)
+        folders[folder].append(path)
+
+    # remove the current folder from the results
+    current_folder = _relative_at(song_path, crc_calc.oraja_path)
+    keys_to_remove = []
+    for folder in folders.keys():
+        folder_path = bms_path_absolute(folder, crc_calc)
+        if current_folder == folder_path:
+            keys_to_remove.append(folder)
+
+    for k in keys_to_remove:
+        folders.pop(k)
+
+    return dict(folders)
+
+
+# ----------------------------------
 # BeatorajaConfig
 # ----------------------------------
 class BeatorajaConfig:
