@@ -41,6 +41,8 @@ Other tools which may be useful:
        * full operation: `add_root_folder()`
      * this library won't contain any logic to process bms files
      * use Beatoraja to process new bms files and folders
+ * utilities:
+   * `list_bms_files()` - iterator over all bms files in a folder
      
 ## Overview
 
