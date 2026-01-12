@@ -7,7 +7,9 @@ import os
 import shutil
 import sqlite3
 import time
+from collections import defaultdict
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Generator, Literal, NewType, Optional
 
@@ -149,9 +151,7 @@ class BmsCrc32Calculator:
         self.root_dirs = root_dirs
 
     @classmethod
-    def from_songdata_db(
-        cls, songdata_db_path: Path, cursor: Optional[sqlite3.Cursor] = None
-    ):
+    def from_songdata_db(cls, songdata_db_path: Path, cursor: Optional[sqlite3.Cursor] = None):
         """
         Initialize this class by reading a songdata.db file.
 
@@ -193,9 +193,7 @@ def bms_path_make(
             path = path.relative_to(crc_calc.oraja_path)
     else:
         # remove any "." or ".." in the path
-        root_dir = Path(
-            "C:/"
-        )  # arbitrary path to serve as a base directory for resolving
+        root_dir = Path("C:/")  # arbitrary path to serve as a base directory for resolving
         path = (root_dir / path).resolve().relative_to(root_dir)
         if path == Path("."):
             raise ValueError("Invalid path")
@@ -244,9 +242,7 @@ def bms_path_basename(path: BmsPath):
 def bms_path_graft(path: BmsPath, src: BmsPath, dst: BmsPath) -> BmsPath:
     # Make sure compared src paths are either both absolute or relative
     if is_absolute(path) != is_absolute(src):
-        raise ValueError(
-            "`path` and `src` paths must both be absolute or both be relative"
-        )
+        raise ValueError("`path` and `src` paths must both be absolute or both be relative")
     relative = path_to_str(Path(path[:-1]).relative_to(Path(src[:-1])), dst[-1])
     if relative == ".":
         return dst
@@ -256,6 +252,45 @@ def bms_path_graft(path: BmsPath, src: BmsPath, dst: BmsPath) -> BmsPath:
 def check_bms_path(path: str) -> BmsPath:
     assert path[-1] in {"\\", "/"}
     return BmsPath(path)
+
+
+# ----------------------------------
+# BeatorajaConfig
+# ----------------------------------
+class BeatorajaConfig:
+    """Represents the Beatoraja config_sys.json file"""
+
+    def __init__(self, data, crc_calc: BmsCrc32Calculator):
+        self.data = data
+        self.crc_calc = crc_calc
+
+    @classmethod
+    def load(cls, fp_or_path: FpOrPath, crc_calc: BmsCrc32Calculator):
+        with _filepath_or_fileobj(fp_or_path, "r", encoding="utf8") as fp:
+            data = json.load(fp)
+        return cls(data, crc_calc)
+
+    def save(self, fp_or_path):
+        with _filepath_or_fileobj(fp_or_path, "w", encoding="utf8") as fp:
+            json.dump(self.data, fp)
+
+    def add_bmsroot(self, folder: BmsPath):
+        self.data["bmsroot"].append(folder[:-1])
+
+    def remove_bmsroot(self, folder: BmsPath):
+        folder_abs = bms_path_absolute(folder, self.crc_calc)
+
+        to_remove = None
+        for i, path in enumerate(self.data["bmsroot"]):
+            if (
+                isinstance(path, str)
+                and bms_path_absolute(check_bms_path(path), self.crc_calc) == folder_abs
+            ):
+                to_remove = i
+                break
+
+        if to_remove is not None:
+            self.data["bmsroot"].pop(to_remove)
 
 
 # ----------------------------------
@@ -340,9 +375,7 @@ def db_move_folder(
                 )
 
             # no entry was found, so remember to create it
-            rows_to_create.append(
-                (current_folder, bms_path_crc32(current_folder, crc_calc))
-            )
+            rows_to_create.append((current_folder, bms_path_crc32(current_folder, crc_calc)))
 
         # create all the saved entries
         current_time = int(time.time())
@@ -534,39 +567,3 @@ def delete_folder(
     # delete folder in the beatoraja config file
     if config is not None:
         config.remove_bmsroot(src)
-
-
-class BeatorajaConfig:
-    """Represents the Beatoraja config_sys.json file"""
-
-    def __init__(self, data, crc_calc: BmsCrc32Calculator):
-        self.data = data
-        self.crc_calc = crc_calc
-
-    @classmethod
-    def load(cls, fp_or_path: FpOrPath, crc_calc: BmsCrc32Calculator):
-        with _filepath_or_fileobj(fp_or_path, "r", encoding="utf8") as fp:
-            data = json.load(fp)
-        return cls(data, crc_calc)
-
-    def save(self, fp_or_path):
-        with _filepath_or_fileobj(fp_or_path, "w", encoding="utf8") as fp:
-            json.dump(self.data, fp)
-
-    def add_bmsroot(self, folder: BmsPath):
-        self.data["bmsroot"].append(folder[:-1])
-
-    def remove_bmsroot(self, folder: BmsPath):
-        folder_abs = bms_path_absolute(folder, self.crc_calc)
-
-        to_remove = None
-        for i, path in enumerate(self.data["bmsroot"]):
-            if (
-                isinstance(path, str)
-                and bms_path_absolute(check_bms_path(path), self.crc_calc) == folder_abs
-            ):
-                to_remove = i
-                break
-
-        if to_remove is not None:
-            self.data["bmsroot"].pop(to_remove)
