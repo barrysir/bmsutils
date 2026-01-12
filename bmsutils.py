@@ -717,7 +717,7 @@ def move_folder(
 
 
 def _default_send_to_trash(path: Path):
-    pass
+    shutil.rmtree(path)
 
 
 def delete_folder(
@@ -743,3 +743,231 @@ def delete_folder(
     # delete folder in the beatoraja config file
     if config is not None:
         config.remove_bmsroot(src)
+
+
+# ----------------------------------
+# Merge operation
+# ----------------------------------
+@dataclass
+class DbMergePlan:
+    dest_crc: str
+    dest_parent_crc: str
+    actions: list[
+        tuple[Literal["move"], BmsFile, BmsFile] | tuple[Literal["delete"], list[BmsFile]]
+    ]
+    errors: Any
+
+
+@dataclass
+class FsMergePlan:
+    src: Path
+    actions: list[tuple[Literal["move"], Path, Path]]
+    errors: Any
+
+
+class FolderCache:
+    def __init__(self, folders):
+        self.folders = folders
+
+    @classmethod
+    def load(cls, cursor: sqlite3.Cursor):
+        folders = defaultdict(list)
+        for folder, *data in cursor.execute("SELECT folder, md5, sha256, path FROM song"):
+            folders[folder].append(data)
+        return cls(folders)
+
+
+def db_merge_folder_plan(
+    src: BmsPath,
+    dest: BmsPath,
+    cursor: sqlite3.Cursor,
+    crc_calc: BmsCrc32Calculator,
+) -> DbMergePlan:
+    src = check_bms_path(src)
+    dest = check_bms_path(dest)
+
+    src_crc = bms_path_crc32(src, crc_calc)
+    dest_crc = bms_path_crc32(dest, crc_calc)
+
+    actions = []
+    errors = []
+    errors_per_file: dict[str, list[BmsFile]] = {}
+    known_files: dict[str, tuple[str, BmsFile]] = {}
+    to_delete: list[BmsFile] = []
+
+    # safety check: src and dest are both in the database (they are both valid paths)
+    if cursor.execute("SELECT parent FROM folder WHERE path = ?", [src]).fetchone() is None:
+        errors.append(("Source path wasn't found in database", src))
+    if cursor.execute("SELECT parent FROM folder WHERE path = ?", [dest]).fetchone() is None:
+        errors.append(("Dest path wasn't found in database", dest))
+
+    # find all songs in both folders
+    src_songs = cursor.execute(
+        "SELECT sha256, path FROM song WHERE folder = ?", [src_crc]
+    ).fetchall()
+    dest_songs = cursor.execute(
+        "SELECT sha256, path FROM song WHERE folder = ?", [dest_crc]
+    ).fetchall()
+
+    # If this error is annoying, I'll turn it into a proper warnings array
+    if len(src_songs) == 0:
+        errors.append(("Warning: src empty",))
+    if len(dest_songs) == 0:
+        errors.append(("Warning: dest empty",))
+
+    def process(mode: Literal[0, 1], t: tuple[str, BmsFile]):
+        sha256, path = t
+        curr_hash = sha256
+        filename = Path(path).name
+        # precondition - every file in src gets an assigned action / error
+        if filename in known_files:
+            cached_hash, cached_path = known_files[filename]
+            if curr_hash != cached_hash:
+                errors_per_file.setdefault(filename, [cached_path]).append(path)
+            else:
+                to_delete.append(path)
+        else:
+            if mode == 0:
+                known_files[filename] = (curr_hash, path)
+            else:
+                actions.append(("move", path, bms_path_join(dest, filename)))
+
+    for record in dest_songs:
+        process(0, record)
+    for record in src_songs:
+        process(1, record)
+
+    if len(to_delete) > 0:
+        actions.append(("delete", to_delete))
+
+    actions.append(("delete", src))
+
+    dest_crc = bms_path_crc32(dest, crc_calc)
+    dest_parent_crc = bms_path_crc32(bms_path_dirname(dest), crc_calc)
+
+    for k, v in errors_per_file.items():
+        file_hash = known_files[k][0]
+        errors.append(("Files have same filename but different hashes", k, file_hash, v))
+
+    return DbMergePlan(
+        dest_crc=dest_crc,
+        dest_parent_crc=dest_parent_crc,
+        actions=actions,
+        errors=errors,
+    )
+
+
+def db_merge_folders_execute(
+    plan: DbMergePlan, cursor: sqlite3.Cursor, crc_calc: BmsCrc32Calculator
+):
+    if len(plan.errors) > 0:
+        raise ValueError("Preventing merge: merge plan has errors")
+
+    for op in plan.actions:
+        if op[0] == "move":
+            src_bms = op[1]
+            dest_bms = op[2]
+            cursor.execute(
+                (
+                    "UPDATE song "
+                    "SET folder = :folder, path = :path, parent = :parent "
+                    "WHERE path = :_search_key"
+                ),
+                {
+                    "folder": plan.dest_crc,
+                    "path": dest_bms,
+                    "parent": plan.dest_parent_crc,
+                    "_search_key": src_bms,
+                },
+            )
+        elif op[0] == "delete":
+            files = op[1]
+            param_array = ", ".join("?" for _ in files)
+            cursor.execute(f"DELETE FROM song WHERE path IN ({param_array})", files)
+
+
+def fs_merge_folder_plan(
+    src: BmsPath,
+    dest: BmsPath,
+    crc_calc: BmsCrc32Calculator,
+    safety_level: Literal[0, 1, 2],
+) -> FsMergePlan:
+    def file_hash(path: Path) -> str:
+        with path.open("rb") as f:
+            return hashlib.file_digest(f, "sha256").hexdigest()
+
+    actions = []
+    errors = []
+
+    src_path: Path = bms_path_absolute(src, crc_calc)
+    dest_path: Path = bms_path_absolute(dest, crc_calc)
+
+    if not src_path.is_dir():
+        raise ValueError(f"Source is not a directory: {src_path}")
+
+    def recurse(src_dir: Path, dest_dir: Path) -> None:
+        for src_path in src_dir.iterdir():
+            dest_path = dest_dir / src_path.name
+
+            # Destination does not exist -> move
+            if not dest_path.exists():
+                actions.append(("move", src_path, dest_path))
+
+            # Both directories -> recurse
+            elif src_path.is_dir() and dest_path.is_dir():
+                recurse(src_path, dest_path)
+
+            # Both files -> safety checks
+            elif src_path.is_file() and dest_path.is_file():
+                if safety_level == 1:
+                    if src_path.stat().st_size != dest_path.stat().st_size:
+                        errors.append((src_path, "File size mismatch"))
+                elif safety_level >= 2:
+                    if file_hash(src_path) != file_hash(dest_path):
+                        errors.append((src_path, "File hash mismatch"))
+
+            # File <-> directory conflict
+            else:
+                errors.append((src_path, "Type conflict with destination"))
+
+    recurse(src_path, dest_path)
+    return FsMergePlan(src_path, actions, errors)
+
+
+def fs_merge_folders_execute(
+    plan: FsMergePlan,
+    *,
+    send_to_trash: Callable[[Path], Any] = _default_send_to_trash,
+):
+    if len(plan.errors) > 0:
+        raise ValueError("Preventing merge: merge plan has errors")
+
+    for action in plan.actions:
+        if action[0] == "move":
+            src = action[1]
+            dest = action[2]
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(src, dest)
+
+    send_to_trash(plan.src)
+
+
+def merge_folders_plan(
+    src: BmsPath,
+    dest: BmsPath,
+    cursor: sqlite3.Cursor,
+    crc_calc: BmsCrc32Calculator,
+    safety_level: Literal[0, 1, 2],
+):
+    db_plan = db_merge_folder_plan(src, dest, cursor, crc_calc)
+    fs_plan = fs_merge_folder_plan(src, dest, crc_calc, safety_level)
+    return db_plan, fs_plan
+
+
+def merge_folders_execute(plan, cursor: sqlite3.Cursor, crc_calc: BmsCrc32Calculator):
+    db_plan, fs_plan = plan
+    if len(db_plan.errors) > 0 or len(fs_plan.errors) > 0:
+        raise ValueError("Preventing merge: merge plan has errors")
+
+    db_merge_folders_execute(db_plan, cursor, crc_calc)
+    fs_merge_folders_execute(fs_plan)

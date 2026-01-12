@@ -25,9 +25,9 @@ Other tools which may be useful:
    * list duplicate bms hashes in the database: `find_duplicate_hashes()`
    * check if a folder is a duplicate: `find_folder_duplicates()`
    * check if a bms file is a duplicate: `find_bms_duplicates()`
- * (wip) merge duplicate bms folders
-   * (wip) db only: `db_merge_folder()`
-   * (wip) full operation: `merge_folder_plan()` and `merge_folder_execute()`
+ * merge duplicate bms folders
+   * db only: `db_merge_folder_plan()` and `db_merge_folder_execute()`
+   * full operation: `merge_folder_plan()` and `merge_folder_execute()`
  * beatoraja songdata.db operations:
    * moving folders
      * db only: `db_move_folder()`
@@ -120,6 +120,40 @@ print(find_folder_duplicates(Path("bms/Songs/my_song_folder"), cursor, crc_calc)
 #   ("bms/Songs/my_song_folder/ANOTHER.bms", "bms/Songs/other_folder/ANOTHER.bms"), 
 #   ("bms/Songs/my_song_folder/HYPER.bms", "bms/Songs/other_folder/HYPER.bms")
 # ] }
+```
+
+### Merging folders
+
+Merging folders does the following:
+
+ * DB
+   * (plan) 
+     * Check song entries with the same filename have the same hash
+   * (execute) 
+     * Moves non-duplicate song entries from src to dest
+     * Deletes any remaining song entries in src
+     * Deletes the folder entry for src
+ * Filesystem
+   * (plan) 
+     * Checks that all files (not just bms files: sound files, images, everything) with the same filename are the same:
+       * Safety level 0: Does no checks, overwrites all files
+       * Safety level 1: Checks that file sizes are the same
+       * Safety level 2: Checks that file hashes are the same
+   * (execute)
+     * Moves non-duplicate files from src to dest
+     * Deletes src
+
+Since merging is an operation that can fail, merging is split into `_plan()` and `_execute()` functions. If any errors appear in the plan, the execute function will refuse to run. (You can manually empty the errors array to proceed anyways.)
+
+Note: merging is kind of slow due to database queries. I might choose a faster implementation later.
+
+```python
+src = bms_path_make("bms/songs/Song Folder", "\\", crc_calc)
+dest = bms_path_make("bms/songs_2025/Song Folder", "\\", crc_calc)
+plan = db_merge_folder_plan(src, dest, cursor, crc_calc)
+print(plan.errors)
+print(plan.actions)
+db_merge_folder_execute(plan, cursor, crc_calc)
 ```
 
 ## Testing
