@@ -11,7 +11,7 @@ from collections import defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Generator, Literal, NewType, Optional
+from typing import Any, Callable, Generator, Literal, NewType, Optional, cast
 
 # ----------------------------------
 # Utility Functions
@@ -68,6 +68,8 @@ def _sql_escape_like(string: str, escape: str):
 # BMS utility functions
 # ----------------------------------
 
+Separator = Literal["\\", "/"]
+
 # see DOCUMENTATION.md
 BMS_EXTENSIONS = {".bms", ".bme", ".bml", ".pms", ".bmson"}
 
@@ -115,7 +117,7 @@ def bms_hash_sha256(fp_or_path: BinaryFpOrPath) -> str:
         return hashlib.file_digest(fp, "sha256").hexdigest()
 
 
-def path_to_str(path: Path, sep: Literal["/", "\\"]):
+def path_to_str(path: Path, sep: Separator):
     path_as_str = path.as_posix()
     if sep == "\\":
         path_as_str = path_as_str.replace("/", "\\")
@@ -192,6 +194,11 @@ class BmsCrc32Calculator:
         Initialize this class by reading a songdata.db file.
 
         songdata_db_path -
+            Path to a songdata.db file in a beatoraja installation.
+            Used to determine the beatoraja root directory.
+        cursor -
+            optional open database cursor to the songdata.db file.
+            If left empty, function will open its own database connection.
         """
         if cursor is None:
             conn = sqlite3.connect(songdata_db_path)
@@ -220,9 +227,7 @@ def is_absolute(path: BmsPath):
     return os.path.isabs(path)
 
 
-def bms_path_make(
-    path: Path, separator: Literal["\\", "/"], crc_calc: BmsCrc32Calculator
-) -> BmsPath:
+def bms_path_make(path: Path, separator: Separator, crc_calc: BmsCrc32Calculator) -> BmsPath:
     # if path is within the beatoraja directory, change it to a relative path
     if path.is_absolute():
         path = path.resolve()
@@ -243,6 +248,11 @@ def bms_path_make(
     # add trailing separator
     path_as_str += separator
     return BmsPath(path_as_str)
+
+
+def bms_path_sep(path: BmsPath) -> Separator:
+    """Get the separator used in a bms path"""
+    return cast(Separator, path[-1])
 
 
 def bms_path_absolute(path: BmsPath, crc_calc: BmsCrc32Calculator) -> Path:
@@ -311,27 +321,43 @@ def check_bms_path(path: str) -> BmsPath:
 # ----------------------------------
 # Find duplicates
 # ----------------------------------
-def find_duplicate_hashes(cursor: sqlite3.Cursor) -> dict[str, list[tuple]]:
-    query = """SELECT * FROM song INNER JOIN (SELECT md5 FROM song WHERE md5 != '' GROUP BY md5 HAVING COUNT(*) > 1) dt ON dt.md5 = song.md5 ORDER BY md5"""
+def find_duplicate_hashes(cursor: sqlite3.Cursor) -> dict[str, list[BmsFile]]:
+    """Return all duplicate hashes in the database."""
+    # use sha256 hash instead of the standard md5
+    #  - md5 field is blank for bmson files
+    # disadvantage: people expect hashes to be md5...
+    query = """SELECT sha256,path FROM song INNER JOIN (
+        SELECT sha256 FROM song GROUP BY sha256 HAVING COUNT(*) > 1
+    ) dt ON dt.sha256 = song.sha256 ORDER BY sha256"""
     dupes = defaultdict(list)
     for row in cursor.execute(query).fetchall():
-        dupes[row[0]].append(row)
+        dupes[row[0]].append(row[1])
     return dupes
 
 
-def find_bms_duplicate(bms_path: Path, cursor: sqlite3.Cursor):
+def find_bms_duplicates(bms_path: Path, cursor: sqlite3.Cursor) -> list[BmsFile]:
+    """Find all duplicates of a bms file in the database."""
     with open(bms_path, "rb") as fp:
-        md5 = bms_hash_md5(fp)
-    cursor.execute("SELECT path,folder FROM song WHERE md5 = ?", [md5])
+        sha256 = bms_hash_sha256(fp)
+    cursor.execute("SELECT path FROM song WHERE sha256 = ?", [sha256])
     return cursor.fetchall()
 
 
-def find_folder_duplicates(song_path: Path, cursor: sqlite3.Cursor, crc_calc: BmsCrc32Calculator):
-    """Detect all duplicates of {song_path} in the database"""
+def find_folder_duplicates(
+    song_path: Path, cursor: sqlite3.Cursor, crc_calc: BmsCrc32Calculator
+) -> dict[BmsPath, list[tuple[BmsFile, BmsFile]]]:
+    """
+    Find all folders which are duplicates of the current folder:
+    any folders that contain bms files with the same hash as
+    a bms file in the current folder.
+
+    Returns `{folder_path: [(path to current folder bms file, path to folder_path bms file)]}`
+    """
 
     folders = defaultdict(list)
 
     bms_hashes = []
+    bms_hash_to_file = {}
     for bms_file in song_path.iterdir():
         if not bms_file.is_file():
             continue
@@ -339,14 +365,17 @@ def find_folder_duplicates(song_path: Path, cursor: sqlite3.Cursor, crc_calc: Bm
         if bms_file.suffix not in BMS_EXTENSIONS:
             continue
 
-        bms_hashes.append(bms_hash_sha256(bms_file))
+        sha256 = bms_hash_sha256(bms_file)
+        bms_hashes.append(sha256)
+        bms_hash_to_file[sha256] = bms_file
 
     query_params = ", ".join("?" for _ in bms_hashes)
-    for (path,) in cursor.execute(
-        f"SELECT path FROM song WHERE sha256 IN ({query_params})", bms_hashes
+    for sha256, dup_path in cursor.execute(
+        f"SELECT sha256,path FROM song WHERE sha256 IN ({query_params})", bms_hashes
     ).fetchall():
-        folder = bms_file_parent(path)
-        folders[folder].append(path)
+        folder = bms_file_parent(dup_path)
+        src_path = bms_path_make(bms_hash_to_file[sha256], bms_path_sep(folder), crc_calc)
+        folders[folder].append((src_path, dup_path))
 
     # remove the current folder from the results
     current_folder = _relative_at(song_path, crc_calc.oraja_path)
@@ -441,6 +470,11 @@ def db_move_folder(
 ):
     """
     Modify the Beatoraja songdata.db database to move the folder at `src` to `dest`.
+
+    `make_dest_a_root` - If you're moving around root folders
+    you probably want to set this to true. See below for details.
+
+    What this function does:
      - Checks if `dest` is underneath an existing directory
        - If it is, creates the folder structure from the directory down to `dest`
        - If not, then throws an error

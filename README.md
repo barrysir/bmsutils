@@ -21,9 +21,10 @@ Other tools which may be useful:
  * calculate md5 hash of bms file `bms_hash_md5()` (stress tested, should be correct)
  * calculate sha256 hash of bms file `bms_hash_sha256()` (stress tested, should be correct)
  * calculate crc32 hash of bms folder `bms_path_crc32()` (stress tested, should be correct)
- * (wip) find duplicates
-   * (wip) check if a folder is a duplicate
-   * (wip) list duplicate bms hashes in the database
+ * find duplicates
+   * list duplicate bms hashes in the database: `find_duplicate_hashes()`
+   * check if a folder is a duplicate: `find_folder_duplicates()`
+   * check if a bms file is a duplicate: `find_bms_duplicates()`
  * (wip) merge duplicate bms folders
    * (wip) db only: `db_merge_folder()`
    * (wip) full operation: `merge_folder_plan()` and `merge_folder_execute()`
@@ -99,6 +100,25 @@ else:
 * todo: mention difference between `db_delete_folder` and `db_delete_folder_faster`
 * todo: explain `dest_is_root_folder` argument of `move_folder`
 
+### Detecting duplicate charts
+
+```python
+# use this to find every chart with duplicate hashes in the database
+print(find_duplicate_hashes(cursor))
+# { 
+#   "e1fb3e5c8486e54687ab9bc2aa34b667": ["bms/Songs/song_name/another.bms", "bms/Songs2/song_name/another.bms"], 
+#   "ae2cacceb8b631dffad40c57301df78c": ["bms/Songs/asd/7k.bms", "bms/Songs2/asd/7k.bms"], 
+#   ...
+# }
+
+# use this to find "duplicates" of the current folder: 
+#  - any other folders that contain bms files with the same hash as a bms file in the current folder
+print(find_folder_duplicates(Path("bms/Songs/my_song_folder"), cursor, crc_calc))
+# { "bms/Songs/other_folder/": [
+#   ("bms/Songs/my_song_folder/ANOTHER.bms", "bms/Songs/other_folder/ANOTHER.bms"), 
+#   ("bms/Songs/my_song_folder/HYPER.bms", "bms/Songs/other_folder/HYPER.bms")
+# ] }
+```
 
 ## Testing
 
