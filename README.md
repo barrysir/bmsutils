@@ -96,6 +96,9 @@ else:
     move_folder(src, dest, cursor, crc_calc, config)
 ```
 
+* todo: mention difference between `db_delete_folder` and `db_delete_folder_faster`
+
+
 ## Testing
 
 ```

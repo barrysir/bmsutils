@@ -43,6 +43,27 @@ def _relative_at(rel_or_abs: Path, root: Path):
         return root / rel_or_abs
 
 
+def _sql_escape_like(string: str, escape: str):
+    """
+    Escape a string for a SQL LIKE operation.
+    NOTE: Must provide the chosen escape character and
+    use in SQL with the ESCAPE clause: `WHERE var LIKE '...' ESCAPE (char)`.
+    Adding the ESCAPE clause is the only way to escape characters in sqlite.
+    """
+    # all possible sqlite escape characters: % and _
+    # https://www.sqlite.org/lang_expr.html#like
+
+    # escape string must be only 1 character long
+    assert len(escape) == 1
+    # note - the order is important: the escape character replace must go before the others
+    # or it'll double escape those characters
+    return (
+        string.replace(escape, escape + escape)
+        .replace("%", f"{escape}%")
+        .replace("_", f"{escape}_")
+    )
+
+
 # ----------------------------------
 # BMS utility functions
 # ----------------------------------
@@ -527,6 +548,24 @@ def db_delete_folder(src: str, cursor: sqlite3.Cursor, crc_calc: BmsCrc32Calcula
 
     # Delete all songs which have src as a parent
     cursor.execute("DELETE FROM song WHERE folder = ?", [src_crc])
+
+
+def db_delete_folder_faster(src: str, cursor: sqlite3.Cursor, crc_calc: BmsCrc32Calculator):
+    """
+    Modify the Beatoraja songdata.db database to delete the bms folder and bms songs at {src}.
+    """
+
+    src = check_bms_path(src)
+
+    # Delete all folders which have src as a parent
+    cursor.execute(
+        "DELETE FROM folder WHERE path LIKE ? ESCAPE ':'", [_sql_escape_like(src, ":") + "%"]
+    )
+
+    # Delete all songs which have src as a parent
+    cursor.execute(
+        "DELETE FROM song WHERE path LIKE ? ESCAPE ':'", [_sql_escape_like(src, ":") + "%"]
+    )
 
 
 def add_root_folder(
