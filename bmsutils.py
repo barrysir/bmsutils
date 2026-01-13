@@ -762,6 +762,7 @@ class DbMergePlan:
         tuple[Literal["move"], BmsFile, BmsFile] | tuple[Literal["delete"], list[BmsFile]]
     ]
     errors: Any
+    src: BmsPath
 
 
 @dataclass
@@ -769,18 +770,6 @@ class FsMergePlan:
     src: Path
     actions: list[tuple[Literal["move"], Path, Path]]
     errors: Any
-
-
-class FolderCache:
-    def __init__(self, folders):
-        self.folders = folders
-
-    @classmethod
-    def load(cls, cursor: sqlite3.Cursor):
-        folders = defaultdict(list)
-        for folder, *data in cursor.execute("SELECT folder, md5, sha256, path FROM song"):
-            folders[folder].append(data)
-        return cls(folders)
 
 
 def db_merge_folder_plan(
@@ -800,6 +789,9 @@ def db_merge_folder_plan(
     errors_per_file: dict[str, list[BmsFile]] = {}
     known_files: dict[str, tuple[str, BmsFile]] = {}
     to_delete: list[BmsFile] = []
+
+    if src_crc == dest_crc:
+        errors.append(("Source and dest paths are the same",))
 
     # safety check: src and dest are both in the database (they are both valid paths)
     if cursor.execute("SELECT parent FROM folder WHERE path = ?", [src]).fetchone() is None:
@@ -846,8 +838,6 @@ def db_merge_folder_plan(
     if len(to_delete) > 0:
         actions.append(("delete", to_delete))
 
-    actions.append(("delete", src))
-
     dest_crc = bms_path_crc32(dest, crc_calc)
     dest_parent_crc = bms_path_crc32(bms_path_dirname(dest), crc_calc)
 
@@ -856,6 +846,7 @@ def db_merge_folder_plan(
         errors.append(("Files have same filename but different hashes", k, file_hash, v))
 
     return DbMergePlan(
+        src=src,
         dest_crc=dest_crc,
         dest_parent_crc=dest_parent_crc,
         actions=actions,
@@ -890,6 +881,8 @@ def db_merge_folder_execute(
             files = op[1]
             param_array = ", ".join("?" for _ in files)
             cursor.execute(f"DELETE FROM song WHERE path IN ({param_array})", files)
+
+    cursor.execute("DELETE FROM folder WHERE path = ?", [plan.src])
 
 
 def fs_merge_folder_plan(
