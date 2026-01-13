@@ -1,0 +1,90 @@
+import sqlite3
+import unittest
+from collections import namedtuple
+from pathlib import Path
+
+from bmsutils import (
+    ROOT_FOLDER_CRC,
+    BmsCrc32Calculator,
+    BmsPath,
+    bms_path_crc32,
+    bms_path_dirname,
+)
+
+FolderEntry = namedtuple("FolderEntry", ["title", "path", "parent"])
+SongEntry = namedtuple("SongEntry", ["sha256", "folder", "path", "parent"])
+
+
+def fs_to_db_rows(
+    fs: dict,
+    crc_calc: BmsCrc32Calculator,
+) -> tuple[list[FolderEntry], list[SongEntry]]:
+    folders = set()
+    songs = set()
+
+    def walk(node: dict, current_path: BmsPath, parent_crc: str):
+        for name, value in node.items():
+            path = current_path + name + "/"
+
+            if isinstance(value, dict):
+                folders.add(FolderEntry(name, path, parent_crc))
+                crc = bms_path_crc32(path, crc_calc)
+                walk(value, path, crc)
+            else:
+                parent_parent_crc = bms_path_crc32(bms_path_dirname(path), crc_calc)
+                songs.add(
+                    SongEntry(
+                        value,
+                        parent_crc,
+                        path,
+                        parent_parent_crc,
+                    )
+                )
+
+    walk(fs, "", ROOT_FOLDER_CRC)
+    return folders, songs
+
+
+class BmsSqliteTestCase(unittest.TestCase):
+    """Base class for tests that require a SQLite database with folder and song tables."""
+
+    def setUp(self):
+        self.conn = sqlite3.connect(":memory:")
+        # self.conn.set_trace_callback(print)
+        self.cursor = self.conn.cursor()
+
+        self.cursor.execute("CREATE TABLE folder (title TEXT, path TEXT, parent TEXT)")
+        self.cursor.execute("CREATE TABLE song (sha256 TEXT, folder TEXT, path TEXT, parent TEXT)")
+
+        self._seed_database()
+        self.conn.commit()
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _seed_database(self):
+        """Override this method to provide initial filesystem data."""
+        pass
+
+    def seed_filesystem(self, filesystem: dict):
+        """Helper method to seed the database with a filesystem structure."""
+        self.crc_calc = BmsCrc32Calculator(
+            Path("doesntmatter"), [Path(f"{k}") for k in filesystem.keys()]
+        )
+        self.folders, self.songs = folders, songs = fs_to_db_rows(filesystem, self.crc_calc)
+        self.cursor.executemany("INSERT INTO folder VALUES (?, ?, ?)", folders)
+        self.cursor.executemany("INSERT INTO song VALUES (?, ?, ?, ?)", songs)
+
+    def fetch_all(self):
+        """Fetch all data from folder and song tables."""
+        return (
+            # use set(): the ordering of the records doesn't matter
+            set(self.cursor.execute("SELECT * FROM folder").fetchall()),
+            set(self.cursor.execute("SELECT * FROM song").fetchall()),
+        )
+
+    def assertFilesystem(self, fs):
+        """Assert that the database matches the expected filesystem structure."""
+        expected = fs_to_db_rows(fs, self.crc_calc)
+        actual = self.fetch_all()
+        self.assertEqual(expected, actual)

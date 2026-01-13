@@ -642,6 +642,9 @@ def db_delete_folder(src: BmsPath, cursor: sqlite3.Cursor, crc_calc: BmsCrc32Cal
     # Delete all songs which have src as a parent
     cursor.execute("DELETE FROM song WHERE folder = ?", [src_crc])
 
+    # Delete the current folder
+    cursor.execute("DELETE FROM folder WHERE path = ?", [src])
+
 
 def db_delete_folder_faster(src: BmsPath, cursor: sqlite3.Cursor, crc_calc: BmsCrc32Calculator):
     """
