@@ -53,7 +53,21 @@ class BmsSqliteTestCase(unittest.TestCase):
         # self.conn.set_trace_callback(print)
         self.cursor = self.conn.cursor()
 
-        self.cursor.execute("CREATE TABLE folder (title TEXT, path TEXT, parent TEXT)")
+        self.cursor.execute("""
+            CREATE TABLE `folder` (
+               	`title`	TEXT,
+               	`subtitle`	TEXT,
+               	`command`	TEXT,
+               	`path`	TEXT,
+               	`banner`	TEXT,
+               	`parent`	TEXT,
+               	`type`	INTEGER,
+               	`date`	INTEGER,
+               	`adddate`	INTEGER,
+               	`max`	INTEGER,
+               	PRIMARY KEY(path)
+            );
+        """)
         self.cursor.execute("CREATE TABLE song (sha256 TEXT, folder TEXT, path TEXT, parent TEXT)")
 
         self.conn.commit()
@@ -67,14 +81,16 @@ class BmsSqliteTestCase(unittest.TestCase):
             Path("doesntmatter"), [Path(f"{k}") for k in filesystem.keys()]
         )
         self.folders, self.songs = folders, songs = fs_to_db_rows(filesystem, self.crc_calc)
-        self.cursor.executemany("INSERT INTO folder VALUES (?, ?, ?)", folders)
+        self.cursor.executemany(
+            "INSERT INTO folder VALUES (?, null, null, ?, null, ?, 0, 0, 0, 0)", folders
+        )
         self.cursor.executemany("INSERT INTO song VALUES (?, ?, ?, ?)", songs)
 
     def fetch_all(self):
         """Fetch all data from folder and song tables."""
         return (
             # use set(): the ordering of the records doesn't matter
-            set(self.cursor.execute("SELECT * FROM folder").fetchall()),
+            set(self.cursor.execute("SELECT title, path, parent FROM folder").fetchall()),
             set(self.cursor.execute("SELECT * FROM song").fetchall()),
         )
 
