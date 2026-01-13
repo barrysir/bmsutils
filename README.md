@@ -100,7 +100,7 @@ else:
 ```
 
 * todo: mention difference between `db_delete_folder` and `db_delete_folder_faster`
-* todo: explain `dest_is_root_folder` argument of `move_folder`
+* todo: explain `make_dest_a_root` argument of `move_folder`
 
 ### Detecting duplicate charts
 
@@ -123,6 +123,8 @@ print(find_folder_duplicates(Path("bms/Songs/my_song_folder"), cursor, crc_calc)
 ```
 
 ### Merging folders
+
+Functionality is there but code is still kind of messy. I've fixed my BMS database since using this so I'll have to wait to download more songs to see how usable it is 🙇‍♀️
 
 Merging folders does the following:
 
