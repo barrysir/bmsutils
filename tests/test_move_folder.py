@@ -173,23 +173,6 @@ class TestDbMoveFolder(BmsSqliteTestCase):
         fs["songsA"]["parent1"] = {"parent2": {"child": bms2_content}}
         self.assertFilesystem(fs)
 
-    # def test_parent_crc_set_correctly(self):
-    #     """Verify the moved folder's parent field is set to correct CRC."""
-    #     from bmsutils import bms_path_crc32
-
-    #     fs = get_seed_filesystem()
-    #     self.seed_filesystem(fs)
-
-    #     db_move_folder(
-    #         BmsPath("songsA/bms1/"), BmsPath("songsB/bms1/"), self.cursor, self.crc_calc, make_dest_a_root=False
-    #     )
-
-    #     # Check that bms1's parent is now songsB
-    #     expected_parent_crc = bms_path_crc32("songsB/", self.crc_calc)
-    #     self.cursor.execute("SELECT parent FROM folder WHERE path = ?", ["songsB/bms1/"])
-    #     actual_parent_crc = self.cursor.fetchone()[0]
-    #     self.assertEqual(expected_parent_crc, actual_parent_crc)
-
     # ===== Edge Cases =====
 
     def test_move_empty_folder(self):
@@ -283,88 +266,6 @@ class TestDbMoveFolder(BmsSqliteTestCase):
                 make_dest_a_root=False,
             )
         self.assertIn("No root folder exists above dest", str(context.exception))
-
-    # def test_multiple_source_entries(self):
-    #     """Should raise ValueError when multiple folders with same path exist."""
-    #     from bmsutils import bms_path_crc32
-
-    #     fs = get_seed_filesystem()
-    #     self.seed_filesystem(fs)
-
-    #     # Insert a duplicate entry
-    #     self.cursor.execute(
-    #         "INSERT INTO folder VALUES (?, ?, ?)",
-    #         ("bms1_duplicate", "songsA/bms1/", bms_path_crc32("songsA/", self.crc_calc)),
-    #     )
-
-    #     with self.assertRaises(ValueError) as context:
-    #         db_move_folder(
-    #             BmsPath("songsA/bms1/"), BmsPath("songsB/bms1/"), self.cursor, self.crc_calc, make_dest_a_root=False
-    #         )
-    #     self.assertIn("Multiple entries for folder", str(context.exception))
-
-    # ===== Database Consistency =====
-
-    # def test_song_paths_use_relative_structure(self):
-    #     """Verify songs' relative paths within folder are preserved."""
-    #     fs = get_seed_filesystem()
-    #     self.seed_filesystem(fs)
-
-    #     db_move_folder(
-    #         BmsPath("songsA/bms1/"), BmsPath("songsB/bms1_moved/"), self.cursor, self.crc_calc, make_dest_a_root=False
-    #     )
-
-    #     # Check that the song paths maintain their relative structure
-    #     self.cursor.execute("SELECT path FROM song WHERE sha256 = ?", ["a1b2c3d4"])
-    #     result = self.cursor.fetchone()
-    #     self.assertEqual(result[0], "songsB/bms1_moved/song1/another.bms")
-
-    #     self.cursor.execute("SELECT path FROM song WHERE sha256 = ?", ["deadbeef"])
-    #     result = self.cursor.fetchone()
-    #     self.assertEqual(result[0], "songsB/bms1_moved/song2/hyper.bms")
-
-    # def test_all_subfolder_parents_updated(self):
-    #     """Verify all direct children have their parent CRC updated."""
-    #     from bmsutils import bms_path_crc32
-
-    #     fs = get_seed_filesystem()
-    #     self.seed_filesystem(fs)
-
-    #     db_move_folder(
-    #         BmsPath("songsA/bms1/"), BmsPath("songsB/bms1_moved/"), self.cursor, self.crc_calc, make_dest_a_root=False
-    #     )
-
-    #     # Check that song1 and song2's parent is now bms1_moved
-    #     expected_parent_crc = bms_path_crc32("songsB/bms1_moved/", self.crc_calc)
-
-    #     self.cursor.execute(
-    #         "SELECT parent FROM folder WHERE path = ?", ["songsB/bms1_moved/song1/"]
-    #     )
-    #     actual_parent_crc = self.cursor.fetchone()[0]
-    #     self.assertEqual(expected_parent_crc, actual_parent_crc)
-
-    #     self.cursor.execute(
-    #         "SELECT parent FROM folder WHERE path = ?", ["songsB/bms1_moved/song2/"]
-    #     )
-    #     actual_parent_crc = self.cursor.fetchone()[0]
-    #     self.assertEqual(expected_parent_crc, actual_parent_crc)
-
-    # def test_folder_title_updated(self):
-    #     """Verify folder's title field is updated to basename of dest."""
-    #     fs = get_seed_filesystem()
-    #     self.seed_filesystem(fs)
-
-    #     db_move_folder(
-    #         BmsPath("songsA/bms1/"),
-    #         BmsPath("songsB/bms1_renamed/"),
-    #         self.cursor,
-    #         self.crc_calc,
-    #         make_dest_a_root=False,
-    #     )
-
-    #     self.cursor.execute("SELECT title FROM folder WHERE path = ?", ["songsB/bms1_renamed/"])
-    #     result = self.cursor.fetchone()
-    #     self.assertEqual(result[0], "bms1_renamed")
 
     # ===== Return Value =====
 
