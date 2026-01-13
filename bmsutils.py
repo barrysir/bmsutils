@@ -493,7 +493,7 @@ def db_move_folder(
         If no ancestor exists in the database, throws an error
         Returns the CRC of the direct parent of {folder}
         """
-        rows_to_create: list[tuple[BmsPath, str]] = []
+        rows_to_create: list[list] = []
         parent_crc = None
 
         # search up this folder's parents for an existing entry
@@ -501,6 +501,9 @@ def db_move_folder(
         while True:
             try:
                 current_folder = bms_path_dirname(current_folder)
+                # fill in parent_crc from last row
+                if len(rows_to_create) > 0:
+                    rows_to_create[-1][1] = bms_path_crc32(current_folder, crc_calc)
             except LastDirectoryError:
                 raise LastDirectoryError(
                     "Found no existing folder entry to attach the destination."
@@ -519,11 +522,11 @@ def db_move_folder(
                 )
 
             # no entry was found, so remember to create it
-            rows_to_create.append((current_folder, bms_path_crc32(current_folder, crc_calc)))
+            rows_to_create.append([current_folder, None])
 
         # create all the saved entries
         current_time = int(time.time())
-        for create_folder, create_crc in rows_to_create:
+        for create_folder, create_parent_crc in rows_to_create:
             cursor.execute(
                 (
                     "INSERT INTO folder (title, subtitle, command, path, banner, parent, type, date, adddate, max) "
@@ -535,7 +538,7 @@ def db_move_folder(
                     "command": "",
                     "path": create_folder,
                     "banner": "",
-                    "parent": create_crc,
+                    "parent": create_parent_crc,
                     "type": 0,
                     "date": current_time,
                     "adddate": current_time,
