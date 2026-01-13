@@ -56,15 +56,10 @@ class BmsSqliteTestCase(unittest.TestCase):
         self.cursor.execute("CREATE TABLE folder (title TEXT, path TEXT, parent TEXT)")
         self.cursor.execute("CREATE TABLE song (sha256 TEXT, folder TEXT, path TEXT, parent TEXT)")
 
-        self._seed_database()
         self.conn.commit()
 
     def tearDown(self):
         self.conn.close()
-
-    def _seed_database(self):
-        """Override this method to provide initial filesystem data."""
-        pass
 
     def seed_filesystem(self, filesystem: dict):
         """Helper method to seed the database with a filesystem structure."""

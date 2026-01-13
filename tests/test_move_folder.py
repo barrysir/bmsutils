@@ -28,9 +28,6 @@ def get_seed_filesystem():
 
 
 class TestDbMoveFolder(BmsSqliteTestCase):
-    def _seed_database(self):
-        pass
-
     # ===== Basic Move Operations =====
 
     def test_move_folder_within_same_root(self):
