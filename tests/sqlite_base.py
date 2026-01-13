@@ -18,22 +18,22 @@ SongEntry = namedtuple("SongEntry", ["sha256", "folder", "path", "parent"])
 def fs_to_db_rows(
     fs: dict,
     crc_calc: BmsCrc32Calculator,
-) -> tuple[list[FolderEntry], list[SongEntry]]:
+) -> tuple[set[FolderEntry], set[SongEntry]]:
     folders = set()
     songs = set()
 
     def walk(node: dict, current_path: BmsPath, parent_crc: str):
         for name, value in node.items():
-            path = current_path + name + "/"
-
             if isinstance(value, dict):
-                folders.add(FolderEntry(name, path, parent_crc))
+                path = current_path + name + "/"
+                folders.add((name, path, parent_crc))
                 crc = bms_path_crc32(path, crc_calc)
                 walk(value, path, crc)
             else:
-                parent_parent_crc = bms_path_crc32(bms_path_dirname(path), crc_calc)
+                path = current_path + name
+                parent_parent_crc = bms_path_crc32(bms_path_dirname(current_path), crc_calc)
                 songs.add(
-                    SongEntry(
+                    (
                         value,
                         parent_crc,
                         path,
@@ -87,4 +87,5 @@ class BmsSqliteTestCase(unittest.TestCase):
         """Assert that the database matches the expected filesystem structure."""
         expected = fs_to_db_rows(fs, self.crc_calc)
         actual = self.fetch_all()
-        self.assertEqual(expected, actual)
+        self.assertSetEqual(expected[0], actual[0])
+        self.assertSetEqual(expected[1], actual[1])
