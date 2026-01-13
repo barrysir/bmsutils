@@ -863,7 +863,7 @@ def db_merge_folder_plan(
     )
 
 
-def db_merge_folders_execute(
+def db_merge_folder_execute(
     plan: DbMergePlan, cursor: sqlite3.Cursor, crc_calc: BmsCrc32Calculator
 ):
     if len(plan.errors) > 0:
@@ -975,5 +975,5 @@ def merge_folders_execute(plan, cursor: sqlite3.Cursor, crc_calc: BmsCrc32Calcul
     if len(db_plan.errors) > 0 or len(fs_plan.errors) > 0:
         raise ValueError("Preventing merge: merge plan has errors")
 
-    db_merge_folders_execute(db_plan, cursor, crc_calc)
+    db_merge_folder_execute(db_plan, cursor, crc_calc)
     fs_merge_folders_execute(fs_plan)
